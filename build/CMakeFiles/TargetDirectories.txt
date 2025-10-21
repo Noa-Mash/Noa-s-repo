@@ -1,4 +1,0 @@
-/c/msys64/home/noa20/projects/rtk_gnss/build/CMakeFiles/test_config.dir
-/c/msys64/home/noa20/projects/rtk_gnss/build/CMakeFiles/test_serial_diagnostic.dir
-/c/msys64/home/noa20/projects/rtk_gnss/build/CMakeFiles/edit_cache.dir
-/c/msys64/home/noa20/projects/rtk_gnss/build/CMakeFiles/rebuild_cache.dir

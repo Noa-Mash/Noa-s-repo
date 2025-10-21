@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/c/msys64/home/noa20/projects/rtk_gnss/build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

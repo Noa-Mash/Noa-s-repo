@@ -1,7 +1,7 @@
 /*
  * main_serial_rawx_sfrbx_diagnostic.cpp
  * 
- * Enhanced version with CFG-RATE and polling to debug RAWX/SFRBX issues
+ * Enhanced version with UbxParser integration and diagnostics
  */
 
 #include <stdio.h>
@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include "ceserial.h"
 #include "MiniUBX.hpp"
-#include "UBX_parser.hpp"
+#include "updated_UBX_parser.hpp"
 
 using namespace std;
 
@@ -71,7 +71,17 @@ const char* getMessageTypeName(uint8_t msgClass, uint8_t msgId) {
     return "UNKNOWN";
 }
 
-void displayRawxData(const UbxMessage& msg) {
+const char* getSystemName(int sys) {
+    if (sys & SYS_GPS) return "GPS";
+    if (sys & SYS_GLO) return "GLO";
+    if (sys & SYS_GAL) return "GAL";
+    if (sys & SYS_CMP) return "BDS";
+    if (sys & SYS_QZS) return "QZS";
+    if (sys & SYS_SBS) return "SBS";
+    return "UNK";
+}
+
+void displayRawxSummary(const UbxMessage& msg, const obs_t& obs) {
     if (msg.getLength() < 16) {
         printf("%sInvalid RAWX length%s\n", COLOR_RED, COLOR_RESET);
         return;
@@ -83,9 +93,22 @@ void displayRawxData(const UbxMessage& msg) {
     
     printf("%s=== RXM-RAWX ===%s\n", COLOR_CYAN, COLOR_RESET);
     printf("  Week: %u, TOW: %.3f s, Measurements: %u\n", week, rcvTow, numMeas);
+    printf("  %sParsed Observations: %d%s\n", COLOR_GREEN, obs.n, COLOR_RESET);
+    
+    if (obs.n > 0) {
+        printf("  %sFirst 5 observations:%s\n", COLOR_YELLOW, COLOR_RESET);
+        for (int i = 0; i < obs.n && i < 5; i++) {
+            int prn;
+            int sys = satsys(obs.data[i].sat, &prn);
+            printf("    [%d] %s%3d: PR=%13.3f L=%13.3f D=%7.2f SNR=%4.1f LLI=%d\n",
+                   i, getSystemName(sys), prn,
+                   obs.data[i].P[0], obs.data[i].L[0], obs.data[i].D[0],
+                   obs.data[i].SNR[0] * 0.25, obs.data[i].LLI[0]);
+        }
+    }
 }
 
-void displaySfrbxData(const UbxMessage& msg) {
+void displaySfrbxSummary(const UbxMessage& msg, int parseResult) {
     if (msg.getLength() < 8) {
         printf("%sInvalid SFRBX length%s\n", COLOR_RED, COLOR_RESET);
         return;
@@ -93,9 +116,30 @@ void displaySfrbxData(const UbxMessage& msg) {
     
     uint8_t gnssId = msg.getPayloadField<uint8_t>(0);
     uint8_t svId = msg.getPayloadField<uint8_t>(1);
+    uint8_t numWords = msg.getPayloadField<uint8_t>(2);
+    
+    const char* sysName = "UNK";
+    switch (gnssId) {
+        case 0: sysName = "GPS"; break;
+        case 1: sysName = "SBS"; break;
+        case 2: sysName = "GAL"; break;
+        case 3: sysName = "BDS"; break;
+        case 5: sysName = "QZS"; break;
+        case 6: sysName = "GLO"; break;
+    }
     
     printf("%s=== RXM-SFRBX ===%s\n", COLOR_CYAN, COLOR_RESET);
-    printf("  GNSS ID: %u, SV: %u\n", gnssId, svId);
+    printf("  System: %s, SV: %u, Words: %u\n", sysName, svId, numWords);
+    
+    if (parseResult == 2) {
+        printf("  %s✓ Ephemeris decoded successfully%s\n", COLOR_GREEN, COLOR_RESET);
+    } else if (parseResult == 9) {
+        printf("  %s✓ Almanac/Iono decoded successfully%s\n", COLOR_GREEN, COLOR_RESET);
+    } else if (parseResult > 0) {
+        printf("  %sPartial decode (result=%d)%s\n", COLOR_YELLOW, parseResult, COLOR_RESET);
+    } else {
+        printf("  %s○ Waiting for more data...%s\n", COLOR_YELLOW, COLOR_RESET);
+    }
 }
 
 void displayCfgRate(const UbxMessage& msg) {
@@ -159,7 +203,39 @@ void displayAckNak(const UbxMessage& msg) {
     }
 }
 
-
+void displayNavStatus(const nav_t& nav) {
+    int gps_count = 0, glo_count = 0, gal_count = 0, bds_count = 0, qzs_count = 0;
+    
+    // Count GPS/GAL/BDS/QZS ephemerides
+    for (int i = 0; i < MAXSAT; i++) {
+        if (nav.eph[i].sat > 0) {
+            int prn;
+            int sys = satsys(nav.eph[i].sat, &prn);
+            if (sys == SYS_GPS) gps_count++;
+            else if (sys == SYS_GAL) gal_count++;
+            else if (sys == SYS_CMP) bds_count++;
+            else if (sys == SYS_QZS) qzs_count++;
+        }
+    }
+    
+    // Count GLONASS ephemerides
+    for (int i = 0; i < NSATGLO; i++) {
+        if (nav.geph[i].sat > 0) glo_count++;
+    }
+    
+    printf("%s=== Navigation Data Status ===%s\n", COLOR_MAGENTA, COLOR_RESET);
+    printf("  GPS Ephemerides: %d\n", gps_count);
+    printf("  GLO Ephemerides: %d\n", glo_count);
+    printf("  GAL Ephemerides: %d\n", gal_count);
+    printf("  BDS Ephemerides: %d\n", bds_count);
+    printf("  QZS Ephemerides: %d\n", qzs_count);
+    printf("  %sTotal: %d%s\n", COLOR_GREEN, 
+           gps_count + glo_count + gal_count + bds_count + qzs_count, COLOR_RESET);
+    
+    if (nav.leaps != 0) {
+        printf("  Leap Seconds: %d\n", nav.leaps);
+    }
+}
 
 class MessageHandler {
 private:
@@ -169,31 +245,28 @@ private:
     unsigned long otherCount = 0;
     FILE* logFile = nullptr;
     bool showAll = false;
-    UbxParser* parser = nullptr;  // pointer since singleton constructed later
+    UbxParser* parser = nullptr;
+    time_t lastNavDisplay = 0;
 
-    // Private constructor (singleton pattern)
     MessageHandler() = default;
 
 public:
-    // 🔹 Delete copy/move semantics (enforces single instance)
     MessageHandler(const MessageHandler&) = delete;
     MessageHandler& operator=(const MessageHandler&) = delete;
 
-    // 🔹 Accessor for the global instance
     static MessageHandler& instance() {
-        static MessageHandler handler;  // thread-safe C++11 initialization
+        static MessageHandler handler;
         return handler;
     }
 
-    // 🔹 Initialize the handler (only call once)
     void initialize(UbxParser* parserRef, FILE* log = nullptr, bool show = false) {
         parser = parserRef;
         logFile = log;
         showAll = show;
         validMessages = rawxCount = sfrbxCount = otherCount = 0;
+        lastNavDisplay = 0;
     }
 
-    // 🔹 Core message handler
     void handle(const UbxMessage& msg) {
         validMessages++;
 
@@ -221,28 +294,89 @@ public:
 
         if (isRawx) {
             rawxCount++;
-            displayRawxData(msg);
-            if (parser) parser->handleRawx(msg.getPayload(), msg.getLength());
+            
+            // Parse with UbxParser
+            int result = 0;
+            if (parser) {
+                result = parser->handleRawx(msg.getPayload(), msg.getLength());
+            }
+            
+            // Display summary
+            if (parser && result > 0) {
+                displayRawxSummary(msg, parser->getObs());
+            } else {
+                displayRawxSummary(msg, obs_t());
+            }
+            
             logMessage("RXM-RAWX", msg, timeStr);
-        } 
-        else if (isSfrbx) {
+            
+        } else if (isSfrbx) {
             sfrbxCount++;
-            displaySfrbxData(msg);
-            if (parser) parser->handleSfrbx(msg.getPayload(), msg.getLength());
+            
+            // Parse with UbxParser
+            int result = 0;
+            if (parser) {
+                result = parser->handleSfrbx(msg.getPayload(), msg.getLength());
+            }
+            
+            // Display summary
+            displaySfrbxSummary(msg, result);
+            
+            // Display navigation status every 30 seconds
+            if (parser && (now - lastNavDisplay >= 30)) {
+                displayNavStatus(parser->getNav());
+                lastNavDisplay = now;
+            }
+            
             logMessage("RXM-SFRBX", msg, timeStr);
-        } 
-        else if (isAck) displayAckNak(msg);
-        else if (isMonVer) displayMonVer(msg);
-        else if (isCfgRate) displayCfgRate(msg);
-        else if (isCfgMsg) displayCfgMsg(msg);
-        else otherCount++;
+            
+        } else if (isAck) {
+            displayAckNak(msg);
+        } else if (isMonVer) {
+            displayMonVer(msg);
+        } else if (isCfgRate) {
+            displayCfgRate(msg);
+        } else if (isCfgMsg) {
+            displayCfgMsg(msg);
+        } else {
+            otherCount++;
+        }
 
-        if (isRawx || isSfrbx || isAck || isMonVer || isCfgRate || isCfgMsg)
+        if (isRawx || isSfrbx || isAck || isMonVer || isCfgRate || isCfgMsg) {
             printf("\n");
+        }
+    }
+
+    void displayStats(unsigned long elapsed) {
+        printf("%s--- Statistics: RAWX=%lu, SFRBX=%lu, Other=%lu, Time=%lus ---%s\n",
+               COLOR_MAGENTA, rawxCount, sfrbxCount, otherCount, elapsed, COLOR_RESET);
+        
+        if (parser) {
+            displayNavStatus(parser->getNav());
+        }
+    }
+
+    void displayFinalStats(unsigned long elapsed) {
+        printf("\n%s=== Final Statistics ===%s\n", COLOR_CYAN, COLOR_RESET);
+        printf("Runtime: %lu seconds\n", elapsed);
+        printf("Total messages: %lu\n", validMessages);
+        printf("  RAWX: %lu\n", rawxCount);
+        printf("  SFRBX: %lu\n", sfrbxCount);
+        printf("  Other: %lu\n", otherCount);
+        
+        if (parser) {
+            printf("\n");
+            displayNavStatus(parser->getNav());
+        }
+        
+        if (rawxCount == 0 && sfrbxCount == 0) {
+            printf("\n%s⚠ No RAWX/SFRBX received!%s\n", COLOR_YELLOW, COLOR_RESET);
+            printf("Check the CFG-MSG poll responses above.\n");
+            printf("If UART1 rate shows 0, the receiver isn't configured correctly.\n");
+        }
     }
 
 private:
-    // 🔹 Helper: log message to file
     void logMessage(const char* label, const UbxMessage& msg, const char* timeStr) {
         if (!logFile) return;
         fprintf(logFile, "[%s] %s (Len=%zu)\n", timeStr, label, msg.getLength());
@@ -255,7 +389,6 @@ private:
     }
 };
 
-
 int main(int argc, char* argv[])
 {
     signal(SIGINT, signalHandler);
@@ -266,10 +399,11 @@ int main(int argc, char* argv[])
     FILE* logFile = nullptr;
     bool showAll = false;
 
-    UbxParser parser;                      // Create parser instance
-    parser.enableLogging("obs_nav.log");   // Optional: log decoded obs/nav
-    // parser.disableLogging();       
+    // Create UbxParser instance
+    UbxParser parser;
+    parser.enableLogging("ubx_parser.log");
     
+    // Parse command line arguments
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
             portName = argv[++i];
@@ -308,7 +442,7 @@ int main(int argc, char* argv[])
     
     ceSerial com(portName, baudRate, 8, 'N', 1);
     
-    printf("%s=== UBX RAWX/SFRBX Diagnostic ===%s\n", COLOR_GREEN, COLOR_RESET);
+    printf("%s=== UBX RAWX/SFRBX Diagnostic with Parser ===%s\n", COLOR_GREEN, COLOR_RESET);
     printf("Port: %s @ %d baud\n", com.GetPort().c_str(), baudRate);
     if (showAll) printf("%s[Showing ALL messages]%s\n", COLOR_YELLOW, COLOR_RESET);
     
@@ -348,7 +482,7 @@ int main(int argc, char* argv[])
     // Step 3: Set measurement rate to 1Hz (1000ms)
     printf("\n%s=== Step 3: Configure CFG-RATE ===%s\n", COLOR_YELLOW, COLOR_RESET);
     uint8_t cfgRateData[6];
-    cfgRateData[0] = 0xE8; cfgRateData[1] = 0x03; // 1000 ms (little endian)
+    cfgRateData[0] = 0xE8; cfgRateData[1] = 0x03; // 1000 ms
     cfgRateData[2] = 0x01; cfgRateData[3] = 0x00; // navRate = 1
     cfgRateData[4] = 0x01; cfgRateData[5] = 0x00; // timeRef = 1 (GPS time)
     
@@ -359,7 +493,6 @@ int main(int argc, char* argv[])
     if (setCfgRateLen > 0) {
         com.Write((char*)txRate, setCfgRateLen);
         printf("=> Set measurement rate to 1000ms (1Hz)\n");
-        printHexDump(txRate, setCfgRateLen, "  ");
     }
     ceSerial::Delay(500);
     
@@ -371,11 +504,11 @@ int main(int argc, char* argv[])
     uint8_t cfgRawx[8];
     cfgRawx[0] = UbxConstants::UBX_CLASS_RXM;
     cfgRawx[1] = UbxConstants::UBX_RXM_RAWX;
-    cfgRawx[2] = 0; // DDC (I2C) rate
-    cfgRawx[3] = 1; // UART1 rate = 1 (every epoch)
-    cfgRawx[4] = 0; // UART2 rate
-    cfgRawx[5] = 0; // USB rate
-    cfgRawx[6] = 0; // SPI rate
+    cfgRawx[2] = 0; // DDC
+    cfgRawx[3] = 1; // UART1 rate = 1
+    cfgRawx[4] = 0; // UART2
+    cfgRawx[5] = 0; // USB
+    cfgRawx[6] = 0; // SPI
     cfgRawx[7] = 0; // Reserved
     
     uint8_t txRawx[32];
@@ -384,13 +517,11 @@ int main(int argc, char* argv[])
                                               cfgRawx, 8, txRawx, sizeof(txRawx));
     if (rawxLen > 0) {
         com.Write((char*)txRawx, rawxLen);
-        printf("  Sent %zu bytes: ", rawxLen);
-        printHexDump(txRawx, rawxLen, "  ");
     }
     ceSerial::Delay(500);
     
     // Enable RXM-SFRBX on UART1
-    printf("\n=> Enabling RXM-SFRBX...\n");
+    printf("=> Enabling RXM-SFRBX...\n");
     uint8_t cfgSfrbx[8];
     cfgSfrbx[0] = UbxConstants::UBX_CLASS_RXM;
     cfgSfrbx[1] = UbxConstants::UBX_RXM_SFRBX;
@@ -407,50 +538,19 @@ int main(int argc, char* argv[])
                                                cfgSfrbx, 8, txSfrbx, sizeof(txSfrbx));
     if (sfrbxLen > 0) {
         com.Write((char*)txSfrbx, sfrbxLen);
-        printf("  Sent %zu bytes: ", sfrbxLen);
-        printHexDump(txSfrbx, sfrbxLen, "  ");
     }
     
     printf("\n%sWaiting for ACKs...%s\n", COLOR_YELLOW, COLOR_RESET);
     ceSerial::Delay(1000);
     
-    // Step 5: Poll back the configuration to verify
-    printf("\n%s=== Step 5: Verify Configuration ===%s\n", COLOR_YELLOW, COLOR_RESET);
-    
-    printf("=> Polling RXM-RAWX configuration...\n");
-    uint8_t pollRawxCfg[2] = {UbxConstants::UBX_CLASS_RXM, UbxConstants::UBX_RXM_RAWX};
-    uint8_t txPollRawx[32];
-    size_t pollRawxLen = protocol.generateMessage(UbxConstants::UBX_CLASS_CFG,
-                                                  UbxConstants::UBX_CFG_MSG,
-                                                  pollRawxCfg, 2, txPollRawx, sizeof(txPollRawx));
-    if (pollRawxLen > 0) {
-        com.Write((char*)txPollRawx, pollRawxLen);
-    }
-    ceSerial::Delay(500);
-    
-    printf("=> Polling RXM-SFRBX configuration...\n");
-    uint8_t pollSfrbxCfg[2] = {UbxConstants::UBX_CLASS_RXM, UbxConstants::UBX_RXM_SFRBX};
-    uint8_t txPollSfrbx[32];
-    size_t pollSfrbxLen = protocol.generateMessage(UbxConstants::UBX_CLASS_CFG,
-                                                   UbxConstants::UBX_CFG_MSG,
-                                                   pollSfrbxCfg, 2, txPollSfrbx, sizeof(txPollSfrbx));
-    if (pollSfrbxLen > 0) {
-        com.Write((char*)txPollSfrbx, pollSfrbxLen);
-    }
-    ceSerial::Delay(500);
-    
-    printf("\n%s=== Step 6: Monitor for messages ===%s\n", COLOR_YELLOW, COLOR_RESET);
+    printf("\n%s=== Monitoring Messages ===%s\n", COLOR_YELLOW, COLOR_RESET);
     printf("Press Ctrl+C to exit\n\n");
     
-    unsigned long validMessages = 0;
-    unsigned long rawxCount = 0;
-    unsigned long sfrbxCount = 0;
-    unsigned long otherCount = 0;
     time_t startTime = time(nullptr);
     uint8_t buffer[4096];
 
-    // a handler object to process messages
-    MessageHandler::instance().initialize(&parser, logFile, true);
+    // Initialize handler with parser
+    MessageHandler::instance().initialize(&parser, logFile, showAll);
     
     while (running) {
         int bytesAvailable = com.Available();
@@ -459,7 +559,10 @@ int main(int argc, char* argv[])
             int bytesToRead = (bytesAvailable > sizeof(buffer)) ? sizeof(buffer) : bytesAvailable;
             int bytesRead = com.ReadBuffer((char*)buffer, bytesToRead);
             if (bytesRead > 0) {
-                protocol.processData(buffer, bytesRead, [](const UbxMessage& msg) { MessageHandler::instance().handle(msg); });
+                protocol.processData(buffer, bytesRead, 
+                    [](const UbxMessage& msg) { 
+                        MessageHandler::instance().handle(msg); 
+                    });
             }
         }
         
@@ -471,26 +574,14 @@ int main(int argc, char* argv[])
         if (now - lastStats >= 30) {
             lastStats = now;
             unsigned long elapsed = now - startTime;
-            printf("%s--- Stats: RAWX=%lu, SFRBX=%lu, Other=%lu, Time=%lus ---%s\n",
-                   COLOR_MAGENTA, rawxCount, sfrbxCount, otherCount, elapsed, COLOR_RESET);
+            MessageHandler::instance().displayStats(elapsed);
         }
     }
     
     // Final stats
     time_t endTime = time(nullptr);
     unsigned long elapsed = endTime - startTime;
-    printf("\n%s=== Final Statistics ===%s\n", COLOR_CYAN, COLOR_RESET);
-    printf("Runtime: %lu seconds\n", elapsed);
-    printf("Total messages: %lu\n", validMessages);
-    printf("  RAWX: %lu\n", rawxCount);
-    printf("  SFRBX: %lu\n", sfrbxCount);
-    printf("  Other: %lu\n", otherCount);
-    
-    if (rawxCount == 0 && sfrbxCount == 0) {
-        printf("\n%s⚠ No RAWX/SFRBX received!%s\n", COLOR_YELLOW, COLOR_RESET);
-        printf("Check the CFG-MSG poll responses above.\n");
-        printf("If UART1 rate shows 0, the receiver isn't configured correctly.\n");
-    }
+    MessageHandler::instance().displayFinalStats(elapsed);
     
     com.Close();
     if (logFile) fclose(logFile);

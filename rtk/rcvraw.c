@@ -959,18 +959,18 @@ extern int input_raw(raw_t *raw, int format, unsigned char data)
     trace(5,"input_raw: format=%d data=0x%02x\n",format,data);
     
     switch (format) {
-        case STRFMT_OEM4 : return input_oem4 (raw,data);
-        case STRFMT_OEM3 : return input_oem3 (raw,data);
+        /*case STRFMT_OEM4 : return input_oem4 (raw,data);
+        case STRFMT_OEM3 : return input_oem3 (raw,data);*/
         case STRFMT_UBX  : return input_ubx  (raw,data);
-        case STRFMT_SS2  : return input_ss2  (raw,data);
+        /*case STRFMT_SS2  : return input_ss2  (raw,data);
         case STRFMT_CRES : return input_cres (raw,data);
         case STRFMT_STQ  : return input_stq  (raw,data);
         case STRFMT_GW10 : return input_gw10 (raw,data);
         case STRFMT_JAVAD: return input_javad(raw,data);
         case STRFMT_NVS  : return input_nvs  (raw,data);
-        case STRFMT_BINEX: return input_bnx  (raw,data);
+        case STRFMT_BINEX: return input_bnx  (raw,data); 
         case STRFMT_RT17 : return input_rt17 (raw,data);
-        case STRFMT_LEXR : return input_lexr (raw,data);
+        case STRFMT_LEXR : return input_lexr (raw,data);removed non essantials (noa)*/
     }
     return 0;
 }
@@ -986,18 +986,18 @@ extern int input_rawf(raw_t *raw, int format, FILE *fp)
     trace(4,"input_rawf: format=%d\n",format);
     
     switch (format) {
-        case STRFMT_OEM4 : return input_oem4f (raw,fp);
-        case STRFMT_OEM3 : return input_oem3f (raw,fp);
+        /*case STRFMT_OEM4 : return input_oem4f (raw,fp);
+        case STRFMT_OEM3 : return input_oem3f (raw,fp);*/
         case STRFMT_UBX  : return input_ubxf  (raw,fp);
-        case STRFMT_SS2  : return input_ss2f  (raw,fp);
+        /*case STRFMT_SS2  : return input_ss2f  (raw,fp);
         case STRFMT_CRES : return input_cresf (raw,fp);
         case STRFMT_STQ  : return input_stqf  (raw,fp);
         case STRFMT_GW10 : return input_gw10f (raw,fp);
         case STRFMT_JAVAD: return input_javadf(raw,fp);
         case STRFMT_NVS  : return input_nvsf  (raw,fp);
-        case STRFMT_BINEX: return input_bnxf  (raw,fp);
+        case STRFMT_BINEX: return input_bnxf  (raw,fp); removed non essantials (noa)
         case STRFMT_RT17 : return input_rt17f (raw,fp);
-        case STRFMT_LEXR : return input_lexrf (raw,fp);
+        case STRFMT_LEXR : return input_lexrf (raw,fp);*/
     }
     return -2;
 }
