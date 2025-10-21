@@ -1,0 +1,6 @@
+depandancies mapping 
+rtklib/src/
+├── rtklib.h          - Header with all type definitions and function declarations
+├── rtkcmn.c          - Core utility functions (bit manipulation, time, etc.)
+├── ephemeris.c       - Satellite ephemeris functions (GPS week adjustment)
+└── rcvraw.c          - Navigation message decoders
