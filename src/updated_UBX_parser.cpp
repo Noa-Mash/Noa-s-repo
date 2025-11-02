@@ -587,3 +587,44 @@ int UbxParser::handleSfrbx(const uint8_t* payload, size_t length) {
     
     return result;
 }
+
+// ============================================================================
+// MESSAGE HANDLER (NEW - moved from main)
+// ============================================================================
+
+void UbxParser::handleUbxMessage(const UbxMessage& msg) {
+    uint8_t msgClass = msg.getClass();
+    uint8_t msgId = msg.getId();
+    
+    // Handle RXM-RAWX
+    if (msgClass == UbxConstants::UBX_CLASS_RXM && msgId == UbxConstants::UBX_RXM_RAWX) {
+        stats.rawxCount++;
+        int result = handleRawx(msg.getPayload(), msg.getLength());
+        if (result && rawxCallback) {
+            rawxCallback(obs);
+        }
+    }
+    // Handle RXM-SFRBX
+    else if (msgClass == UbxConstants::UBX_CLASS_RXM && msgId == UbxConstants::UBX_RXM_SFRBX) {
+        stats.sfrbxCount++;
+        int result = handleSfrbx(msg.getPayload(), msg.getLength());
+        if (result == 2) {
+            stats.ephCount++;
+            if (ephCallback) {
+                ephCallback(result);
+            }
+        }
+    }
+    // Handle ACK/NAK
+    else if (msgClass == UbxConstants::UBX_CLASS_ACK) {
+        if (msgId == UbxConstants::UBX_ACK_ACK) {
+            stats.ackCount++;
+        } else if (msgId == UbxConstants::UBX_ACK_NAK) {
+            stats.nakCount++;
+        }
+    }
+    // Count others
+    else {
+        stats.otherCount++;
+    }
+}

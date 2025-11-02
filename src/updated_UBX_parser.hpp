@@ -1,7 +1,12 @@
 #pragma once
 #include "rtklib.h"
+#include "MiniUBX.hpp"
 #include <cstdint>
 #include <string>
+#include <functional>
+
+// Forward declaration
+class UbxMessage;
 
 // External RTKLIB functions (exported from rcvraw.c)
 extern "C" {
@@ -34,11 +39,45 @@ public:
     
     void clearObs();
 
+    // Message handling (NEW - moved from main)
+    void handleUbxMessage(const UbxMessage& msg);
+
+    // Statistics access
+    struct Statistics {
+        unsigned long rawxCount;
+        unsigned long sfrbxCount;
+        unsigned long ephCount;
+        unsigned long ackCount;
+        unsigned long nakCount;
+        unsigned long otherCount;
+        
+        Statistics() : rawxCount(0), sfrbxCount(0), ephCount(0), 
+                      ackCount(0), nakCount(0), otherCount(0) {}
+    };
+    
+    const Statistics& getStats() const { return stats; }
+    void resetStats() { stats = Statistics(); }
+    
+    // Optional callbacks for specific events
+    using RawxCallback = std::function<void(const obs_t&)>;
+    using EphCallback = std::function<void(int result)>;
+    
+    void setRawxCallback(RawxCallback cb) { rawxCallback = cb; }
+    void setEphCallback(EphCallback cb) { ephCallback = cb; }
+
+
 private:
     obs_t obs;
     nav_t nav;
     FILE* logFile;
     bool loggingEnabled;
+
+    // Statistics
+    Statistics stats;
+
+    // Callbacks
+    RawxCallback rawxCallback;
+    EphCallback ephCallback; 
     
     gtime_t current_time;
     double lockt[MAXSAT][NFREQ+NEXOBS];

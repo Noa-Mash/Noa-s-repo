@@ -45,26 +45,25 @@ set(SOURCES
     src/rtk_gnss_config.c
     src/MiniUBX.cpp
     src/updated_UBX_parser.cpp
-    src/main_serial_rawx_sfrbx_diagnostic.cpp
+    src/serial_main_updated.cpp
 )
 
 # ============================================================================
 # Build target
 # ----------------------------------------------------------------------------
-add_executable(main_serial_rawx_sfrbx_diagnostic
+add_executable(serial_main_updated
     ${SOURCES}
     ${RTK_CORE}
 )
 
 # Link math + Windows multimedia libraries (for timeGetTime etc.)
-target_link_libraries(main_serial_rawx_sfrbx_diagnostic
-    m
+target_link_libraries(serial_main_updated
     winmm
 )
 
 # ============================================================================
 # Output path
 # ----------------------------------------------------------------------------
-set_target_properties(main_serial_rawx_sfrbx_diagnostic PROPERTIES
+set_target_properties( serial_main_updated PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
